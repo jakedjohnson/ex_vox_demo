@@ -26,12 +26,13 @@ import {hooks as colocatedHooks} from "phoenix-colocated/ex_vox_demo"
 import topbar from "../vendor/topbar"
 import AudioRecorder from "./hooks/audio_recorder"
 import Clipboard from "./hooks/clipboard"
+import BrowserCheck from "./hooks/browser_check"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, AudioRecorder, Clipboard},
+  hooks: {...colocatedHooks, AudioRecorder, Clipboard, BrowserCheck},
 })
 
 // Show progress bar on live navigation and form submits

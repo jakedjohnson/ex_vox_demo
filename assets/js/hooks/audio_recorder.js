@@ -18,8 +18,26 @@ const AudioRecorder = {
 
   async startRecording() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({audio: true})
-      this.mediaRecorder = new MediaRecorder(stream, {mimeType: "audio/webm"})
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: {ideal: 1},
+          sampleRate: {ideal: 16000},
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      })
+
+      // Try codecs in order of preference for OpenAI compatibility
+      const mimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ]
+      const mimeType = mimeTypes.find(t => MediaRecorder.isTypeSupported(t)) || "audio/webm"
+      console.log("Using audio mimeType:", mimeType)
+
+      this.mediaRecorder = new MediaRecorder(stream, {mimeType})
       this.chunks = []
 
       this.mediaRecorder.ondataavailable = e => this.chunks.push(e.data)
