@@ -32,7 +32,7 @@ config :ex_vox_demo, ExVoxDemoWeb.Endpoint,
 config :ex_vox_demo, ExVoxDemo.Mailer, adapter: Swoosh.Adapters.Local
 
 config :ex_vox,
-  backend: :local,
+  backend: :openai,
   api_key: System.get_env("OPENAI_API_KEY"),
   model: "gpt-4o-mini-transcribe",
   language: "en",

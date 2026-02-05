@@ -12,6 +12,8 @@ defmodule ExVoxDemo.Application do
       ExVoxDemo.Repo,
       {DNSCluster, query: Application.get_env(:ex_vox_demo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ExVoxDemo.PubSub},
+      {DynamicSupervisor, name: ExVoxDemo.ServingDynSup, strategy: :one_for_one},
+      ExVoxDemo.ServingManager,
       # Start a worker by calling: ExVoxDemo.Worker.start_link(arg)
       # {ExVoxDemo.Worker, arg},
       # Start to serve requests, typically the last entry
@@ -22,14 +24,7 @@ defmodule ExVoxDemo.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ExVoxDemo.Supervisor]
 
-    case Supervisor.start_link(children, opts) do
-      {:ok, pid} = result ->
-        maybe_start_local_serving_async(pid)
-        result
-
-      other ->
-        other
-    end
+    Supervisor.start_link(children, opts)
   end
 
   # Tell Phoenix to update the endpoint configuration
@@ -40,17 +35,4 @@ defmodule ExVoxDemo.Application do
     :ok
   end
 
-  defp maybe_start_local_serving_async(supervisor) do
-    if Application.get_env(:ex_vox, :backend) in [:local, :hybrid] do
-      Task.start(fn ->
-        model = Application.get_env(:ex_vox, :local_model, "openai/whisper-small")
-
-        child =
-          {Nx.Serving,
-           serving: ExVox.Local.serving(model: model), name: ExVox.Serving, batch_timeout: 100}
-
-        _ = Supervisor.start_child(supervisor, child)
-      end)
-    end
-  end
 end
