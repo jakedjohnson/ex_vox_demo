@@ -41,6 +41,9 @@ defmodule ExVoxDemo.MixProject do
   defp deps do
     [
       {:ex_vox, path: "../ex_vox"},
+      {:bumblebee, "~> 0.6"},
+      {:nx, "~> 0.9"},
+      {:exla, "~> 0.9"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},

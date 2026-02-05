@@ -3,7 +3,17 @@ defmodule ExVoxDemoWeb.TranscribeLive do
 
   alias ExVox.Error
 
+  @local_models [
+    "openai/whisper-tiny",
+    "openai/whisper-small",
+    "openai/whisper-medium",
+    "openai/whisper-large-v3"
+  ]
+
   def mount(_params, _session, socket) do
+    backend = Application.get_env(:ex_vox, :backend, :openai)
+    local_model = Application.get_env(:ex_vox, :local_model, "openai/whisper-small")
+
     socket =
       socket
       |> assign(:transcript, nil)
@@ -12,6 +22,14 @@ defmodule ExVoxDemoWeb.TranscribeLive do
       |> assign(:recording, false)
       |> assign(:transcribing, false)
       |> assign(:task_ref, nil)
+      |> assign(:backend, backend)
+      |> assign(:local_model, local_model)
+      |> assign(:local_models, @local_models)
+      |> assign(:serving_ready, serving_ready?(backend))
+
+    if backend == :local and not socket.assigns.serving_ready do
+      Process.send_after(self(), :check_serving, 1_000)
+    end
 
     {:ok, socket}
   end
@@ -31,7 +49,14 @@ defmodule ExVoxDemoWeb.TranscribeLive do
   def handle_event("audio_recorded", %{"data" => base64_data}, socket) do
     case Base.decode64(base64_data) do
       {:ok, binary} ->
-        task = Task.async(fn -> ExVox.transcribe(binary) end)
+        task =
+          Task.async(fn ->
+            ExVox.transcribe(binary,
+              backend: socket.assigns.backend,
+              local_model: socket.assigns.local_model
+            )
+          end)
+
         {:noreply, assign(socket, transcribing: true, error: nil, task_ref: task.ref)}
 
       :error ->
@@ -46,6 +71,40 @@ defmodule ExVoxDemoWeb.TranscribeLive do
 
     {:noreply, socket}
   end
+
+  def handle_event("set_backend", %{"backend" => backend}, socket) do
+    backend =
+      case backend do
+        "local" -> :local
+        _ -> :openai
+      end
+
+    socket = assign(socket, backend: backend, serving_ready: serving_ready?(backend))
+
+    if backend == :local and not socket.assigns.serving_ready do
+      Process.send_after(self(), :check_serving, 1_000)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("set_local_model", %{"local_model" => local_model}, socket) do
+    {:noreply, assign(socket, local_model: local_model)}
+  end
+
+  def handle_info(:check_serving, socket) do
+    ready = serving_ready?(socket.assigns.backend)
+
+    if ready do
+      {:noreply, assign(socket, serving_ready: true)}
+    else
+      Process.send_after(self(), :check_serving, 2_000)
+      {:noreply, socket}
+    end
+  end
+
+  defp serving_ready?(:local), do: Process.whereis(ExVox.Serving) != nil
+  defp serving_ready?(_), do: true
 
   def handle_info({ref, result}, socket) when is_reference(ref) do
     if ref == socket.assigns.task_ref do
@@ -98,6 +157,44 @@ defmodule ExVoxDemoWeb.TranscribeLive do
         <p class="mt-1 text-sm text-base-content/50">
           Tap to record · tap again to transcribe
         </p>
+      </div>
+
+      <div class="mt-6 flex flex-col items-center gap-3">
+        <div class="join">
+          <label class="join-item btn btn-sm" phx-click="set_backend" phx-value-backend="openai">
+            <input type="radio" name="backend" checked={@backend == :openai} />
+            API
+          </label>
+          <label class="join-item btn btn-sm" phx-click="set_backend" phx-value-backend="local">
+            <input type="radio" name="backend" checked={@backend == :local} />
+            Local
+          </label>
+        </div>
+
+        <div :if={@backend == :local} class="flex items-center gap-2">
+          <span class="text-xs text-base-content/50">Model</span>
+          <select
+            class="select select-sm"
+            name="local_model"
+            phx-change="set_local_model"
+          >
+            <%= for model <- @local_models do %>
+              <option value={model} selected={model == @local_model}><%= model %></option>
+            <% end %>
+          </select>
+        </div>
+
+        <span class="badge badge-ghost text-xs">
+          <%= if @backend == :openai do %>
+            API mode
+          <% else %>
+            <%= if @serving_ready do %>
+              Local mode (<%= @local_model %>)
+            <% else %>
+              Local model loading…
+            <% end %>
+          <% end %>
+        </span>
       </div>
 
       <div id="audio-recorder" class="mt-12 flex flex-col items-center gap-4" phx-hook="AudioRecorder">

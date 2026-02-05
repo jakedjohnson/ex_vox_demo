@@ -32,9 +32,11 @@ config :ex_vox_demo, ExVoxDemoWeb.Endpoint,
 config :ex_vox_demo, ExVoxDemo.Mailer, adapter: Swoosh.Adapters.Local
 
 config :ex_vox,
+  backend: :local,
   api_key: System.get_env("OPENAI_API_KEY"),
   model: "gpt-4o-mini-transcribe",
-  language: "en"
+  language: "en",
+  local_model: "openai/whisper-small"
 
 # Configure esbuild (the version is required)
 config :esbuild,
