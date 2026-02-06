@@ -222,6 +222,29 @@ defmodule ExVoxDemoWeb.TranscribeLive do
     "#{m}m #{s}s"
   end
 
+  defp format_duration_ms(ms) when is_number(ms) and ms < 1000, do: "#{ms}ms"
+
+  defp format_duration_ms(ms) when is_number(ms) do
+    seconds = ms / 1000
+
+    if seconds < 60 do
+      "#{Float.round(seconds, 1)}s"
+    else
+      m = trunc(seconds / 60)
+      s = Float.round(seconds - m * 60, 1)
+      "#{m}m #{s}s"
+    end
+  end
+
+  defp format_duration_ms(_), do: ""
+
+  defp format_speed_ratio(audio_ms, processing_ms) when processing_ms > 0 do
+    ratio = Float.round(audio_ms / processing_ms, 1)
+    "#{ratio}x realtime"
+  end
+
+  defp format_speed_ratio(_, _), do: ""
+
   def render(assigns) do
     ~H"""
     <div id="transcribe-root" class="mx-auto max-w-2xl px-6 py-16" phx-hook="Clipboard">
@@ -499,6 +522,31 @@ defmodule ExVoxDemoWeb.TranscribeLive do
         </div>
         <div class="mt-2 rounded-box bg-base-200 p-4 text-sm leading-relaxed whitespace-pre-wrap">
           {@transcript}
+        </div>
+      </div>
+
+      <div :if={@raw_result && (@raw_result.audio_duration_ms || @raw_result.processing_time_ms)} class="mt-4 flex flex-wrap gap-3">
+        <div :if={@raw_result.audio_duration_ms} class="flex items-center gap-1.5 rounded-box bg-base-200 px-3 py-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 text-base-content/40">
+            <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z" />
+            <path d="M6 10.5a.75.75 0 01.75.75v1.5a5.25 5.25 0 1010.5 0v-1.5a.75.75 0 011.5 0v1.5a6.751 6.751 0 01-6 6.709v2.291h3a.75.75 0 010 1.5h-7.5a.75.75 0 010-1.5h3v-2.291a6.751 6.751 0 01-6-6.709v-1.5A.75.75 0 016 10.5z" />
+          </svg>
+          <span class="text-xs text-base-content/60 tabular-nums">
+            Audio: {format_duration_ms(@raw_result.audio_duration_ms)}
+          </span>
+        </div>
+        <div :if={@raw_result.processing_time_ms} class="flex items-center gap-1.5 rounded-box bg-base-200 px-3 py-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 text-base-content/40">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z" clip-rule="evenodd" />
+          </svg>
+          <span class="text-xs text-base-content/60 tabular-nums">
+            Processing: {format_duration_ms(@raw_result.processing_time_ms)}
+          </span>
+        </div>
+        <div :if={@raw_result.audio_duration_ms && @raw_result.processing_time_ms} class="flex items-center gap-1.5 rounded-box bg-base-200 px-3 py-1.5">
+          <span class="text-xs text-base-content/40 tabular-nums">
+            {format_speed_ratio(@raw_result.audio_duration_ms, @raw_result.processing_time_ms)}
+          </span>
         </div>
       </div>
 
