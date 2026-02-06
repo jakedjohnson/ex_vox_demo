@@ -13,7 +13,7 @@ defmodule ExVoxDemo.Application do
       {DNSCluster, query: Application.get_env(:ex_vox_demo, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ExVoxDemo.PubSub},
       {DynamicSupervisor, name: ExVoxDemo.ServingDynSup, strategy: :one_for_one},
-      ExVoxDemo.ServingManager,
+      {ExVoxDemo.ServingManager, auto_load: Application.get_env(:ex_vox, :backend) == :local},
       # Start a worker by calling: ExVoxDemo.Worker.start_link(arg)
       # {ExVoxDemo.Worker, arg},
       # Start to serve requests, typically the last entry
@@ -34,5 +34,4 @@ defmodule ExVoxDemo.Application do
     ExVoxDemoWeb.Endpoint.config_change(changed, removed)
     :ok
   end
-
 end

@@ -6,10 +6,10 @@ defmodule ExVoxDemoWeb.TranscribeLive do
   alias Phoenix.PubSub
 
   @local_models [
-    %{name: "openai/whisper-tiny", ram_gb: 1},
-    %{name: "openai/whisper-small", ram_gb: 2},
-    %{name: "openai/whisper-medium", ram_gb: 5},
-    %{name: "openai/whisper-large-v3", ram_gb: 10}
+    %{name: "openai/whisper-tiny", ram_gb: 1, speed: "fastest", quality: "basic"},
+    %{name: "openai/whisper-small", ram_gb: 2, speed: "fast", quality: "good"},
+    %{name: "openai/whisper-medium", ram_gb: 5, speed: "moderate", quality: "great"},
+    %{name: "openai/whisper-large-v3", ram_gb: 10, speed: "slow", quality: "best"}
   ]
 
   def mount(_params, _session, socket) do
@@ -35,6 +35,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
       |> assign(:local_models, @local_models)
       |> assign(:serving_status, serving_status)
       |> assign(:api_key_configured, api_key not in [nil, ""])
+      |> assign(:cache_dir, ServingManager.cache_dir())
 
     {:ok, socket}
   end
@@ -65,6 +66,12 @@ defmodule ExVoxDemoWeb.TranscribeLive do
       true ->
         case Base.decode64(base64_data) do
           {:ok, binary} ->
+            require Logger
+
+            Logger.debug(
+              "Starting transcription with backend=#{socket.assigns.backend}, binary size=#{byte_size(binary)}"
+            )
+
             task =
               Task.async(fn ->
                 ExVox.transcribe(binary,
@@ -105,7 +112,9 @@ defmodule ExVoxDemoWeb.TranscribeLive do
 
   def handle_event("load_model", _params, socket) do
     _ = ServingManager.load_model(socket.assigns.local_model)
-    {:noreply, assign(socket, serving_status: {:loading, socket.assigns.local_model})}
+
+    {:noreply,
+     assign(socket, serving_status: {:loading, socket.assigns.local_model, nil, 0, 0.0})}
   end
 
   def handle_event("stop_model", _params, socket) do
@@ -120,6 +129,8 @@ defmodule ExVoxDemoWeb.TranscribeLive do
   def handle_info({ref, result}, socket) when is_reference(ref) do
     if ref == socket.assigns.task_ref do
       Process.demonitor(ref, [:flush])
+      require Logger
+      Logger.debug("Transcription task result: #{inspect(result)}")
 
       case result do
         {:ok, %ExVox.Result{} = res} ->
@@ -141,18 +152,33 @@ defmodule ExVoxDemoWeb.TranscribeLive do
              error: message,
              task_ref: nil
            )}
+
+        other ->
+          Logger.error("Unexpected transcription result: #{inspect(other)}")
+
+          {:noreply,
+           assign(socket,
+             transcribing: false,
+             transcript: nil,
+             raw_result: nil,
+             error: "Unexpected transcription result",
+             task_ref: nil
+           )}
       end
     else
       {:noreply, socket}
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, socket) do
+  def handle_info({:DOWN, ref, :process, _pid, reason}, socket) do
+    require Logger
+    Logger.error("Transcription task DOWN: #{inspect(reason)}")
+
     if ref == socket.assigns.task_ref do
       {:noreply,
        assign(socket,
          transcribing: false,
-         error: "Transcription failed unexpectedly.",
+         error: "Transcription failed unexpectedly: #{inspect(reason)}",
          task_ref: nil
        )}
     else
@@ -160,19 +186,41 @@ defmodule ExVoxDemoWeb.TranscribeLive do
     end
   end
 
-  defp serving_ready?({:ready, _model}), do: true
+  # --- Status helpers ---
+
+  defp serving_ready?({:ready, _model, _elapsed}), do: true
   defp serving_ready?(_), do: false
 
-  defp serving_loading?({:loading, _model}), do: true
+  defp serving_loading?({:loading, _model, _step, _elapsed, _progress}), do: true
   defp serving_loading?(_), do: false
 
   defp serving_error?({:error, _model, _reason}), do: true
   defp serving_error?(_), do: false
 
-  defp serving_model({:loading, model}), do: model
-  defp serving_model({:ready, model}), do: model
+  defp serving_model({:loading, model, _step, _elapsed, _progress}), do: model
+  defp serving_model({:ready, model, _elapsed}), do: model
   defp serving_model({:error, model, _reason}), do: model
   defp serving_model(_), do: nil
+
+  defp loading_step({:loading, _model, step, _elapsed, _progress}), do: step
+  defp loading_step(_), do: nil
+
+  defp loading_elapsed({:loading, _model, _step, elapsed, _progress}), do: elapsed
+  defp loading_elapsed(_), do: 0
+
+  defp loading_progress({:loading, _model, _step, _elapsed, progress}), do: progress
+  defp loading_progress(_), do: 0.0
+
+  defp progress_percent(status), do: round(loading_progress(status) * 100)
+
+  defp format_elapsed(0), do: ""
+  defp format_elapsed(seconds) when seconds < 60, do: "#{seconds}s"
+
+  defp format_elapsed(seconds) do
+    m = div(seconds, 60)
+    s = rem(seconds, 60)
+    "#{m}m #{s}s"
+  end
 
   def render(assigns) do
     ~H"""
@@ -185,14 +233,13 @@ defmodule ExVoxDemoWeb.TranscribeLive do
       </div>
 
       <div class="mt-6 flex flex-col items-center gap-3">
+        <%!-- Backend toggle --%>
         <div class="join">
           <label class="join-item btn btn-sm" phx-click="set_backend" phx-value-backend="openai">
-            <input type="radio" name="backend" checked={@backend == :openai} />
-            API
+            <input type="radio" name="backend" checked={@backend == :openai} /> API
           </label>
           <label class="join-item btn btn-sm" phx-click="set_backend" phx-value-backend="local">
-            <input type="radio" name="backend" checked={@backend == :local} />
-            Local
+            <input type="radio" name="backend" checked={@backend == :local} /> Local
           </label>
         </div>
 
@@ -200,13 +247,17 @@ defmodule ExVoxDemoWeb.TranscribeLive do
           <span>No OpenAI API key configured. Set OPENAI_API_KEY to use API mode.</span>
         </div>
 
-        <div :if={@backend == :local or @serving_status != :idle} class="flex flex-wrap items-center gap-2">
+        <%!-- Model selector (local mode) --%>
+        <div
+          :if={@backend == :local or @serving_status != :idle}
+          class="flex flex-wrap items-center gap-2"
+        >
           <span class="text-xs text-base-content/50">Model</span>
           <form phx-change="set_local_model">
             <select class="select select-sm" name="local_model">
               <%= for model <- @local_models do %>
                 <option value={model.name} selected={model.name == @local_model}>
-                  <%= model.name %> (~<%= model.ram_gb %> GB)
+                  {model.name} (~{model.ram_gb} GB · {model.speed} · {model.quality})
                 </option>
               <% end %>
             </select>
@@ -232,28 +283,111 @@ defmodule ExVoxDemoWeb.TranscribeLive do
           </button>
         </div>
 
-        <span class="badge badge-ghost text-xs">
+        <%!-- Status badge --%>
+        <span class={[
+          "badge text-xs",
+          cond do
+            serving_ready?(@serving_status) -> "badge-success"
+            serving_loading?(@serving_status) -> "badge-warning"
+            serving_error?(@serving_status) -> "badge-error"
+            true -> "badge-ghost"
+          end
+        ]}>
           <%= case @serving_status do %>
             <% :idle -> %>
-              <%= if @backend == :openai do %>API mode<% else %>No model loaded<% end %>
-            <% {:loading, model} -> %>
-              Loading <%= model %>…
-            <% {:ready, model} -> %>
-              <%= model %> ready
+              <%= if @backend == :openai do %>
+                API mode
+              <% else %>
+                No model loaded
+              <% end %>
+            <% {:loading, model, _step, elapsed, _progress} -> %>
+              Loading {model}… {format_elapsed(elapsed)}
+            <% {:ready, model, elapsed} -> %>
+              {model} ready
+              <span :if={elapsed && elapsed > 0} class="opacity-60">
+                (loaded in {format_elapsed(elapsed)})
+              </span>
             <% {:error, model, _reason} -> %>
-              Failed to load <%= model %>
+              Failed to load {model}
           <% end %>
         </span>
+
+        <%!-- Loading progress detail --%>
+        <div :if={serving_loading?(@serving_status)} class="w-full max-w-sm">
+          <div class="flex flex-col gap-2">
+            <%!-- Determinate progress bar --%>
+            <div class="relative w-full">
+              <progress
+                class="progress progress-warning w-full"
+                value={progress_percent(@serving_status)}
+                max="100"
+              >
+              </progress>
+              <span class="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-base-content/70">
+                {progress_percent(@serving_status)}%
+              </span>
+            </div>
+
+            <%!-- Current step label --%>
+            <p
+              :if={loading_step(@serving_status)}
+              class="text-xs text-base-content/50 text-center"
+            >
+              {ServingManager.step_label(loading_step(@serving_status))}
+            </p>
+            <p
+              :if={loading_step(@serving_status) == nil}
+              class="text-xs text-base-content/50 text-center"
+            >
+              Initializing…
+            </p>
+
+            <%!-- Elapsed time --%>
+            <p
+              :if={loading_elapsed(@serving_status) > 0}
+              class="text-xs text-base-content/30 text-center tabular-nums"
+            >
+              {format_elapsed(loading_elapsed(@serving_status))} elapsed
+            </p>
+
+            <p class="text-xs text-base-content/30 text-center">
+              First load downloads the model. Subsequent loads use cache.
+            </p>
+          </div>
+        </div>
+
+        <%!-- Cache directory info (shown in local mode when idle or ready) --%>
+        <div
+          :if={@backend == :local and not serving_loading?(@serving_status)}
+          class="w-full max-w-sm"
+        >
+          <details class="mt-1">
+            <summary class="cursor-pointer text-xs text-base-content/30 hover:text-base-content/50 transition-colors text-center">
+              Model cache location
+            </summary>
+            <div class="mt-1 rounded-box bg-base-200 px-3 py-2">
+              <code class="text-[11px] text-base-content/60 break-all">{@cache_dir}</code>
+              <p class="mt-1 text-[11px] text-base-content/30">
+                Models are cached here after first download. Delete this folder to force re-download.
+              </p>
+            </div>
+          </details>
+        </div>
 
         <div :if={serving_error?(@serving_status)} class="text-xs text-error">
           <%= case @serving_status do %>
             <% {:error, _model, reason} -> %>
-              <%= inspect(reason) %>
+              {inspect(reason)}
           <% end %>
         </div>
       </div>
 
-      <div id="audio-recorder" class="mt-12 flex flex-col items-center gap-4" phx-hook="AudioRecorder">
+      <%!-- Record button --%>
+      <div
+        id="audio-recorder"
+        class="mt-12 flex flex-col items-center gap-4"
+        phx-hook="AudioRecorder"
+      >
         <button
           type="button"
           data-toggle-record
@@ -262,26 +396,64 @@ defmodule ExVoxDemoWeb.TranscribeLive do
             "relative flex h-24 w-24 items-center justify-center rounded-full transition-all duration-300",
             "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-base-100",
             cond do
-              @transcribing -> "bg-base-300 cursor-not-allowed focus:ring-base-300"
-              @recording -> "bg-error shadow-lg shadow-error/30 focus:ring-error"
-              true -> "bg-primary hover:scale-105 active:scale-95 shadow-md hover:shadow-lg focus:ring-primary"
+              @transcribing ->
+                "bg-base-300 cursor-not-allowed focus:ring-base-300"
+
+              @recording ->
+                "bg-error shadow-lg shadow-error/30 focus:ring-error"
+
+              true ->
+                "bg-primary hover:scale-105 active:scale-95 shadow-md hover:shadow-lg focus:ring-primary"
             end
           ]}
         >
           <span :if={@recording} class="absolute inset-0 rounded-full bg-error/30 animate-ping" />
 
-          <svg :if={!@recording && !@transcribing} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-10 w-10 text-primary-content">
+          <svg
+            :if={!@recording && !@transcribing}
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            class="h-10 w-10 text-primary-content"
+          >
             <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z" />
             <path d="M6 10.5a.75.75 0 01.75.75v1.5a5.25 5.25 0 1010.5 0v-1.5a.75.75 0 011.5 0v1.5a6.751 6.751 0 01-6 6.709v2.291h3a.75.75 0 010 1.5h-7.5a.75.75 0 010-1.5h3v-2.291a6.751 6.751 0 01-6-6.709v-1.5A.75.75 0 016 10.5z" />
           </svg>
 
-          <svg :if={@recording} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="relative z-10 h-10 w-10 text-error-content">
-            <path fill-rule="evenodd" d="M4.5 7.5a3 3 0 013-3h9a3 3 0 013 3v9a3 3 0 01-3 3h-9a3 3 0 01-3-3v-9z" clip-rule="evenodd" />
+          <svg
+            :if={@recording}
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            class="relative z-10 h-10 w-10 text-error-content"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M4.5 7.5a3 3 0 013-3h9a3 3 0 013 3v9a3 3 0 01-3 3h-9a3 3 0 01-3-3v-9z"
+              clip-rule="evenodd"
+            />
           </svg>
 
-          <svg :if={@transcribing} class="h-8 w-8 animate-spin text-base-content/40" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <svg
+            :if={@transcribing}
+            class="h-8 w-8 animate-spin text-base-content/40"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            />
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
           </svg>
         </button>
 
@@ -292,7 +464,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
             <% @recording -> %>
               Recording · tap to stop
             <% @backend == :local and not serving_ready?(@serving_status) -> %>
-              Local model not ready
+              Load a model above to start
             <% true -> %>
               Tap to start
           <% end %>
@@ -300,14 +472,25 @@ defmodule ExVoxDemoWeb.TranscribeLive do
       </div>
 
       <div :if={@error} class="alert alert-error mt-10">
-        <span><%= @error %></span>
+        <span>{@error}</span>
+      </div>
+
+      <div class="alert alert-warning mt-10" id="browser-warning" phx-hook="BrowserCheck">
+        <span>
+          If transcription isn't working, try using Safari instead of Chrome. Some Chrome versions have audio capture issues.
+        </span>
       </div>
 
       <div :if={@transcript} class="mt-10">
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-semibold">Transcript</h2>
           <button class="btn btn-sm btn-ghost gap-1" type="button" phx-click="copy">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              class="h-4 w-4"
+            >
               <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z" />
               <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.439A1.5 1.5 0 008.378 6H4.5z" />
             </svg>
@@ -315,7 +498,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
           </button>
         </div>
         <div class="mt-2 rounded-box bg-base-200 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-          <%= @transcript %>
+          {@transcript}
         </div>
       </div>
 
@@ -323,7 +506,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
         <summary class="cursor-pointer text-xs text-base-content/40 hover:text-base-content/60 transition-colors">
           API Response
         </summary>
-        <pre class="mt-2 rounded-box bg-base-300 p-3 text-xs overflow-x-auto"><code><%= inspect(@raw_result, pretty: true) %></code></pre>
+        <pre class="mt-2 rounded-box bg-base-300 p-3 text-xs overflow-x-auto"><code>{inspect(@raw_result, pretty: true)}</code></pre>
       </details>
     </div>
     """
