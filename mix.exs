@@ -40,7 +40,7 @@ defmodule ExVoxDemo.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:ex_vox, path: "/Users/jakejohnson/Repos/eng/ex_vox"},
+      {:ex_vox, github: "jakedjohnson/ex_vox"},
       {:bumblebee, "~> 0.6"},
       {:nx, "~> 0.9"},
       {:exla, "~> 0.9"},
