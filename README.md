@@ -186,12 +186,96 @@ This repo is designed to be hackable by both humans and their agents. If you're 
 3. **Add your proper nouns.** Seed the database with your people and places. The cleanup pass gets dramatically better.
 4. **Build on it.** The Elixir/Phoenix stack is intentionally simple. One LiveView, one GenServer, one Ecto schema. Add features, break things, PR them back.
 
-### Ideas for Agent-to-Agent Collaboration
+### Noun Interchange Protocol (v0.1)
 
-- **Shared proper noun dictionaries** — export/import noun lists between instances
-- **Capture format standardization** — agreed-upon metadata schema so your agent and my agent can exchange transcripts
-- **Local model benchmarks** — compare Whisper model accuracy across different hardware
-- **Pipeline plugins** — post-transcription hooks (summarization, tagging, routing to different systems)
+Two ExVox instances (or any voice-capture system with correction dictionaries) can exchange proper nouns using this JSON format. No API required — paste it, email it, drop it in a repo. The format is designed to be readable by both humans and agents.
+
+**Export format:**
+
+```json
+{
+  "protocol": "exvox-noun-interchange",
+  "version": "0.1",
+  "instance": {
+    "name": "your-instance-name",
+    "url": "https://your-server:port"
+  },
+  "exported_at": "2026-03-16T21:30:00Z",
+  "nouns": {
+    "shared": [
+      {
+        "wrong": "Hubbell",
+        "right": "Hubble",
+        "source": "manual",
+        "hit_count": 12,
+        "category": "household"
+      }
+    ],
+    "personal": [
+      {
+        "wrong": "Apigee",
+        "right": "Apogee",
+        "source": "auto",
+        "hit_count": 8,
+        "category": "project"
+      }
+    ]
+  },
+  "categories": ["household", "project", "person", "place", "tech", "other"]
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `wrong` | string | yes | What the transcriber produces |
+| `right` | string | yes | What it should be |
+| `source` | `manual` or `auto` | yes | How the correction was created |
+| `hit_count` | integer | no | Times this correction has fired |
+| `category` | string | no | Semantic grouping (free-form) |
+
+**Import rules:**
+- **Shared nouns import as shared.** They enter the receiving instance's shared pool.
+- **Personal nouns are offered for review.** The importing user accepts individually or in bulk.
+- **Conflicts:** If `wrong` already exists with a different `right`, flag for human review. Don't silently overwrite.
+- **Dedup:** Match on `wrong` (case-insensitive). Skip if identical `wrong`→`right` already exists.
+- **Append-only.** Imports never delete existing nouns.
+
+**Privacy:** Default export scope is `shared` only. Personal nouns (relationship names, medical terms, work vocabulary) never leave an instance without explicit user action.
+
+### Capture Metadata Exchange (v0.2, planned)
+
+Once noun interchange works, the same pattern extends to captures:
+
+```json
+{
+  "protocol": "exvox-capture-meta",
+  "version": "0.2",
+  "captures": [
+    {
+      "id": "uuid",
+      "captured_at": "2026-03-16T21:30:00Z",
+      "duration_ms": 45000,
+      "whisper_model": "gpt-4o-mini-transcribe",
+      "transcript": "cleaned text...",
+      "nouns_applied": ["Hubble", "Apogee"]
+    }
+  ]
+}
+```
+
+This enables cross-instance search, federated noun discovery (your instance corrects a word mine hasn't seen yet), and shared corpora for local Whisper fine-tuning.
+
+### Agent Skill Exchange (v0.3, vision)
+
+The deepest layer: two agents sharing *capabilities*, not just data. Skill files, rule files, pipeline definitions. Your agent reads this README and understands the interchange format — that's v0.0 of skill exchange already happening.
+
+### Design Philosophy
+
+This protocol is modeled on a concept called the **Ledger of All Things** — an append-only, privacy-scoped graph where things (proper nouns, captures, people, places) are **piers** and relationships between them (corrections, tags, references) are **beams**. Beams are themselves nodes, so the graph is fractal. The proper noun interchange is the first concrete implementation of this model. If two instances can exchange corrections reliably, the same protocol extends to captures, skills, and eventually a full federated knowledge graph.
+
+Principles: JSON over API (files work without servers). Append-only (imports add, never subtract). Privacy by default (personal stays personal). Human in the loop for conflicts (shared nouns are shared *decisions*). Agent-native (this document IS the interface spec — if your agent can read markdown, it can participate).
 
 ## Stack
 
