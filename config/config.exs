@@ -38,6 +38,10 @@ config :ex_vox,
   language: "en",
   local_model: "openai/whisper-small"
 
+config :ex_vox_demo,
+  captures_dir: Path.expand("~/captures/exvox"),
+  proper_nouns_path: Path.expand("~/Repositories/tenet/research/proper-nouns.md")
+
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",

@@ -18,6 +18,7 @@ defmodule ExVoxDemoWeb.Router do
     pipe_through :browser
 
     live "/", TranscribeLive, :index
+    get "/captures/audio/:filename", CaptureController, :audio
   end
 
   # Other scopes may use custom stacks.
