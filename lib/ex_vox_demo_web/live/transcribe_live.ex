@@ -177,6 +177,52 @@ defmodule ExVoxDemoWeb.TranscribeLive do
     speak_text(socket, text)
   end
 
+  def handle_event("retranscribe", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+    cap = ExVoxDemo.Repo.get!(Capture, id)
+
+    cond do
+      socket.assigns.backend == :openai and not socket.assigns.api_key_configured ->
+        {:noreply, assign(socket, error: "No OpenAI API key configured.")}
+
+      socket.assigns.backend == :local and not serving_ready?(socket.assigns.serving_status) ->
+        {:noreply, assign(socket, error: "Local model not ready.")}
+
+      cap.audio_path == nil ->
+        {:noreply, assign(socket, error: "No audio file for this capture.")}
+
+      true ->
+        case File.read(cap.audio_path) do
+          {:ok, binary} ->
+            task =
+              Task.async(fn ->
+                ExVox.transcribe(binary,
+                  backend: socket.assigns.backend,
+                  local_model: socket.assigns.local_model
+                )
+              end)
+
+            {:noreply,
+             socket
+             |> assign(
+               transcribing: true,
+               error: nil,
+               task_ref: task.ref,
+               saved_audio_path: cap.audio_path,
+               capture_timestamp: cap.timestamp,
+               capture: cap,
+               transcript: nil,
+               cleaned_transcript: nil,
+               cleaning: false,
+               cleanup_ref: nil
+             )}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, error: "Cannot read audio file: #{inspect(reason)}")}
+        end
+    end
+  end
+
   def handle_event("set_backend", %{"backend" => backend}, socket) do
     backend =
       case backend do
@@ -593,7 +639,17 @@ defmodule ExVoxDemoWeb.TranscribeLive do
           </div>
 
           <div :if={@error} class="mt-6 rounded-box bg-error/10 border border-error/20 px-4 py-3 text-sm text-error">
-            {@error}
+            <div>{@error}</div>
+            <button
+              :if={@capture}
+              type="button"
+              class="btn btn-xs btn-warning mt-2"
+              phx-click="retranscribe"
+              phx-value-id={@capture.id}
+              disabled={@transcribing}
+            >
+              Retry transcription
+            </button>
           </div>
 
           <div :if={@saved_audio_path || @transcript} class="mt-6 rounded-box border border-base-content/10 overflow-hidden">
@@ -871,11 +927,31 @@ defmodule ExVoxDemoWeb.TranscribeLive do
                   </div>
 
                   <%!-- Metadata --%>
-                  <div class="px-4 py-2 border-t border-base-content/5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-base-content/30">
+                  <div class="px-4 py-2 border-t border-base-content/5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-base-content/30">
                     <span>id:{cap.id}</span>
                     <span :if={cap.audio_duration_ms}>audio: {format_duration_ms(cap.audio_duration_ms)}</span>
                     <span :if={cap.processing_time_ms}>proc: {format_duration_ms(cap.processing_time_ms)}</span>
                     <span :if={cap.model}>{cap.model}</span>
+                    <button
+                      :if={cap.status in ["saved", "failed", "cleaning"]}
+                      type="button"
+                      class="btn btn-xs btn-warning ml-auto"
+                      phx-click="retranscribe"
+                      phx-value-id={cap.id}
+                      disabled={@transcribing}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      :if={cap.status in ["transcribed", "cleaned"]}
+                      type="button"
+                      class="btn btn-xs btn-ghost ml-auto"
+                      phx-click="retranscribe"
+                      phx-value-id={cap.id}
+                      disabled={@transcribing}
+                    >
+                      Re-transcribe
+                    </button>
                   </div>
                 </div>
               </details>
