@@ -40,7 +40,7 @@ config :ex_vox,
 
 config :ex_vox_demo,
   captures_dir: Path.expand("~/captures/exvox"),
-  proper_nouns_path: Path.expand("~/Repositories/tenet/research/proper-nouns.md")
+  proper_nouns_path: System.get_env("PROPER_NOUNS_PATH")
 
 # Configure esbuild (the version is required)
 config :esbuild,

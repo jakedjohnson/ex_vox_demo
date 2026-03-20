@@ -1,26 +1,44 @@
 defmodule ExVoxDemo.NounCleanup do
   @moduledoc """
   Second-pass proper noun correction using OpenAI chat API.
-  Reads proper nouns from a configurable file path (defaults to tenet's proper-nouns.md).
+
+  Reads proper nouns from a markdown file. Configure the path via:
+
+    - Environment variable: `PROPER_NOUNS_PATH`
+    - App config: `config :ex_vox_demo, proper_nouns_path: "/path/to/proper-nouns.md"`
+    - Dev secrets: `config/dev.secrets.exs` (gitignored, per-machine)
+
+  If no path is configured, the cleanup step is skipped and the raw
+  transcript is returned as-is.
   """
 
   require Logger
 
-  @default_nouns_path Path.expand("~/Repositories/tenet/research/proper-nouns.md")
   @api_url "https://api.openai.com/v1/chat/completions"
   @model "gpt-4o-mini"
 
   def cleanup(raw_transcript) do
-    nouns_path = Application.get_env(:ex_vox_demo, :proper_nouns_path, @default_nouns_path)
+    case resolve_nouns_path() do
+      nil ->
+        Logger.info("No proper_nouns_path configured — skipping cleanup. " <>
+          "Set PROPER_NOUNS_PATH or add to config/dev.secrets.exs")
+        {:ok, raw_transcript}
 
-    case File.read(nouns_path) do
-      {:ok, nouns_doc} ->
-        call_api(raw_transcript, nouns_doc)
+      nouns_path ->
+        case File.read(nouns_path) do
+          {:ok, nouns_doc} ->
+            call_api(raw_transcript, nouns_doc)
 
-      {:error, reason} ->
-        Logger.warning("Proper nouns file not found at #{nouns_path}: #{inspect(reason)}")
-        {:error, :nouns_file_missing}
+          {:error, reason} ->
+            Logger.warning("Proper nouns file not found at #{nouns_path}: #{inspect(reason)}")
+            {:error, :nouns_file_missing}
+        end
     end
+  end
+
+  defp resolve_nouns_path do
+    Application.get_env(:ex_vox_demo, :proper_nouns_path) ||
+      System.get_env("PROPER_NOUNS_PATH")
   end
 
   defp call_api(transcript, nouns_doc) do
