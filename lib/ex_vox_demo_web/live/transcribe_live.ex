@@ -686,7 +686,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
               cleaning={@cleaning}
             />
 
-            <details :if={@transcript} open class="group">
+            <details :if={@transcript} open class="group" phx-mounted={JS.ignore_attributes(["open"])}>
               <summary class="cursor-pointer px-4 py-2.5 text-xs text-base-content/50 hover:text-base-content/70 border-t border-base-content/5 flex items-center justify-between transition-colors">
                 <div class="flex items-center gap-1.5">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="h-3.5 w-3.5 transition-transform group-open:rotate-90">
@@ -760,7 +760,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
             </div>
           </div>
 
-          <details id="settings-panel" class="mt-10">
+          <details id="settings-panel" class="mt-10" phx-mounted={JS.ignore_attributes(["open"])}>
             <summary class="cursor-pointer text-xs text-base-content/30 hover:text-base-content/50 transition-colors flex items-center gap-1.5">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
                 <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
@@ -816,13 +816,16 @@ defmodule ExVoxDemoWeb.TranscribeLive do
                 </div>
 
                 <div :if={serving_loading?(@serving_status)} class="space-y-1">
-                  <progress class="progress progress-warning w-full" value={progress_percent(@serving_status)} max="100" />
+                  <%= if progress_percent(@serving_status) > 0 do %>
+                    <progress class="progress progress-warning w-full" value={progress_percent(@serving_status)} max="100" />
+                  <% else %>
+                    <progress class="progress progress-warning w-full" />
+                  <% end %>
                   <p class="text-xs text-base-content/40 text-center">
-                    {progress_percent(@serving_status)}%
                     <%= if loading_step(@serving_status) do %>
-                      · {ServingManager.step_label(loading_step(@serving_status))}
+                      {ServingManager.step_label(loading_step(@serving_status))}
                     <% else %>
-                      · Initializing…
+                      Initializing…
                     <% end %>
                     <%= if loading_elapsed(@serving_status) > 0 do %>
                       · {format_elapsed(loading_elapsed(@serving_status))}
@@ -842,7 +845,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
                 Cache: <code class="break-all">{@cache_dir}</code>
               </div>
 
-              <details :if={@raw_result}>
+              <details :if={@raw_result} phx-mounted={JS.ignore_attributes(["open"])}>
                 <summary class="cursor-pointer text-[11px] text-base-content/30 hover:text-base-content/50">
                   API Response
                 </summary>
@@ -910,7 +913,7 @@ defmodule ExVoxDemoWeb.TranscribeLive do
                         {cap.transcript_cleaned}
                       </div>
                     </div>
-                    <details :if={cap.transcript_raw && cap.transcript_cleaned} class="group/raw">
+                    <details :if={cap.transcript_raw && cap.transcript_cleaned} class="group/raw" phx-mounted={JS.ignore_attributes(["open"])}>
                       <summary class="cursor-pointer text-[10px] uppercase tracking-wider text-base-content/30 hover:text-base-content/50">
                         Raw transcript
                       </summary>
