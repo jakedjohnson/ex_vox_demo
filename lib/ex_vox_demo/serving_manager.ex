@@ -12,7 +12,7 @@ defmodule ExVoxDemo.ServingManager do
   # Ordered loading steps with their labels and progress weight (0.0–1.0).
   # Model weights are the bulk of the work; compiling is next heaviest.
   @steps [
-    {:loading_model, "Downloading & loading model weights", 0.0},
+    {:loading_model, "Downloading model (may take a few minutes)", 0.0},
     {:loading_featurizer, "Loading audio featurizer", 0.50},
     {:loading_tokenizer, "Loading tokenizer", 0.60},
     {:loading_generation_config, "Loading generation config", 0.70},
@@ -206,8 +206,8 @@ defmodule ExVoxDemo.ServingManager do
     |> Map.put(:task_ref, task.ref)
     |> Map.put(:task_model, model)
     |> Map.put(:loading_started_at, System.monotonic_time(:second))
-    |> Map.put(:loading_step, nil)
-    |> set_status({:loading, model, nil, 0, 0.0})
+    |> Map.put(:loading_step, :loading_model)
+    |> set_status({:loading, model, :loading_model, 0, 0.0})
     |> schedule_tick()
   end
 
